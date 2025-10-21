@@ -4,6 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getSupabaseBrowser, isSupabaseConfigured } from "@/lib/supabase-client"
 import leo from "leo-profanity"
 
+// Safe UUID generation with fallback
+function generateId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // Fallback for older browsers
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 export type ChatMessage = { id: string; author: string; text: string; timestamp: number }
 export type Facing = "N" | "S" | "E" | "W"
 export type Peer = {
@@ -175,19 +188,19 @@ export function useMultiplayer({ room, userId, name, offline }: Options) {
       const trimmed = cleaned.trim()
 
       if (!trimmed) {
-        setMessages((prev) => [...prev, { id: "sys-" + crypto.randomUUID(), author: "System", text: "Message cannot be empty.", timestamp: Date.now() }])
+        setMessages((prev) => [...prev, { id: "sys-" + generateId(), author: "System", text: "Message cannot be empty.", timestamp: Date.now() }])
         return
       }
       if (trimmed.length > MAX_LEN) {
-        setMessages((prev) => [...prev, { id: "sys-" + crypto.randomUUID(), author: "System", text: `Message is too long. Max ${MAX_LEN} characters.`, timestamp: Date.now() }])
+        setMessages((prev) => [...prev, { id: "sys-" + generateId(), author: "System", text: `Message is too long. Max ${MAX_LEN} characters.`, timestamp: Date.now() }])
         return
       }
       if (!guard.canSend()) {
-        setMessages((prev) => [...prev, { id: "sys-" + crypto.randomUUID(), author: "System", text: "You are sending messages too fast.", timestamp: Date.now() }])
+        setMessages((prev) => [...prev, { id: "sys-" + generateId(), author: "System", text: "You are sending messages too fast.", timestamp: Date.now() }])
         return
       }
 
-      const msg: ChatMessage = { id: crypto.randomUUID(), author: name, text: trimmed, timestamp: Date.now() }
+      const msg: ChatMessage = { id: generateId(), author: name, text: trimmed, timestamp: Date.now() }
       setMessages((prev) => [...prev, msg]) // optimistic
 
       if (!offlineResolved) {

@@ -9,9 +9,11 @@ import { MessageSquare, Map, Settings, Volume2, VolumeX, Music2, Pause, WifiOff 
 import IsoRoom, { type RoomPreset } from "@/components/iso-room"
 import ChatPanel from "@/components/chat-panel"
 import WindowFrame from "@/components/window-frame"
+import VirtualJoystick from "@/components/virtual-joystick"
 import styles from "@/styles/habbo.module.css"
 import { useMultiplayer } from "@/hooks/use-multiplayer"
 import { ChipTune } from "@/lib/chiptune-fallback"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 function getOrCreateId(key: string) {
   try {
@@ -59,6 +61,7 @@ const TRACK_CANDIDATES: Record<TrackId, { label: string; sources: TrackCandidate
 }
 
 export default function Page() {
+  const isMobile = useIsMobile()
   const [room, setRoom] = useState<RoomPreset>("Lobby")
   const [chatOpen, setChatOpen] = useState(true)
   const [navOpen, setNavOpen] = useState(true)
@@ -76,6 +79,9 @@ export default function Page() {
   const [currentTrackId, setCurrentTrackId] = useState<TrackId | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
 
+  // Virtual joystick state for mobile
+  const [joystickDirection, setJoystickDirection] = useState<"up" | "down" | "left" | "right" | null>(null)
+
   // Engines: HTMLAudio (remote) + WebAudio synth fallback
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const chipRef = useRef<ChipTune | null>(null)
@@ -85,6 +91,15 @@ export default function Page() {
     setUid(getOrCreateId("pp_uid"))
     setDisplayName(getOrCreateName())
   }, [])
+
+  // Auto-close windows on mobile for better UX
+  useEffect(() => {
+    if (isMobile) {
+      setChatOpen(false)
+      setNavOpen(false)
+      setSettingsOpen(false)
+    }
+  }, [isMobile])
 
   useEffect(() => {
     const a = new Audio()
@@ -255,30 +270,45 @@ export default function Page() {
   return (
     <div className="min-h-[100dvh] flex flex-col bg-[#9bbad3]">
       <header className="border-b border-black/40 bg-[#2f2f2f]">
-        <div className="max-w-6xl mx-auto px-3 py-2 flex items-center gap-3">
-          <div className={styles.logoBlock} aria-label="Pixel Plaza logo">
+        <div className="max-w-6xl mx-auto px-3 py-2 flex items-center gap-2 md:gap-3">
+          <div className={`${styles.logoBlock} text-xs md:text-base`} aria-label="Pixel Plaza logo">
             <span className={styles.logoWord}>PIXEL PLAZA</span>
           </div>
-          <Separator orientation="vertical" className="h-6 bg-black/50" />
-          <div className="text-sm text-white/80 hidden sm:block">{roomTitle}</div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" className={styles.pixelButton} onClick={() => setNavOpen((v) => !v)}>
-              <Map className="w-4 h-4" /> Navigator
+          <Separator orientation="vertical" className="h-6 bg-black/50 hidden md:block" />
+          <div className="text-xs md:text-sm text-white/80 hidden sm:block">{roomTitle}</div>
+          <div className="ml-auto flex items-center gap-1 md:gap-2">
+            <Button
+              variant="outline"
+              size={isMobile ? "sm" : "default"}
+              className={styles.pixelButton}
+              onClick={() => setNavOpen((v) => !v)}
+            >
+              <Map className="w-4 h-4" /> {!isMobile && "Navigator"}
             </Button>
-            <Button variant="outline" className={styles.pixelButton} onClick={() => setChatOpen((v) => !v)}>
-              <MessageSquare className="w-4 h-4" /> Chat
+            <Button
+              variant="outline"
+              size={isMobile ? "sm" : "default"}
+              className={styles.pixelButton}
+              onClick={() => setChatOpen((v) => !v)}
+            >
+              <MessageSquare className="w-4 h-4" /> {!isMobile && "Chat"}
             </Button>
-            <Button variant="outline" className={styles.pixelButton} onClick={() => setSettingsOpen((v) => !v)}>
-              <Settings className="w-4 h-4" /> Settings
+            <Button
+              variant="outline"
+              size={isMobile ? "sm" : "default"}
+              className={styles.pixelButton}
+              onClick={() => setSettingsOpen((v) => !v)}
+            >
+              <Settings className="w-4 h-4" /> {!isMobile && "Settings"}
             </Button>
           </div>
         </div>
       </header>
 
       <main className="flex-1">
-        <div className="max-w-6xl mx-auto p-4">
+        <div className="max-w-6xl mx-auto p-2 md:p-4">
           <div className={styles.playFrame}>
-            <div className="relative w-full h-[70vh] min-h-[520px]">
+            <div className="relative w-full h-[calc(100dvh-120px)] md:h-[70vh] md:min-h-[520px]">
               <IsoRoom
                 room={room}
                 selfName={displayName}
@@ -297,6 +327,8 @@ export default function Page() {
                 currentTrackId={currentTrackId || undefined}
                 isPlaying={isPlaying}
                 onMusicBoxToggle={toggleMusicBox}
+                // Virtual joystick for mobile
+                externalDirection={joystickDirection}
               />
               {offlineMode && (
                 <div
@@ -305,6 +337,12 @@ export default function Page() {
                 >
                   <WifiOff className="w-3.5 h-3.5" />
                   <span>Offline mode (no Supabase env)</span>
+                </div>
+              )}
+              {/* Virtual Joystick for mobile - hide when chat is open */}
+              {isMobile && !chatOpen && (
+                <div className="absolute bottom-4 right-4 z-10">
+                  <VirtualJoystick onDirectionChange={setJoystickDirection} />
                 </div>
               )}
             </div>
@@ -317,7 +355,11 @@ export default function Page() {
           id="chat"
           title="Chat"
           variant="habbo"
-          initial={{ x: 16, y: 88, w: 360, h: 360 }}
+          initial={
+            isMobile
+              ? { x: 0, y: 60, w: window.innerWidth, h: window.innerHeight - 60 }
+              : { x: 16, y: 88, w: 360, h: 360 }
+          }
           onClose={() => setChatOpen(false)}
           ariaTitle="Chat window"
         >
@@ -335,7 +377,11 @@ export default function Page() {
           id="navigator"
           title="Plaza Navigator"
           variant="habbo"
-          initial={{ x: 400, y: 88, w: 360, h: 420 }}
+          initial={
+            isMobile
+              ? { x: 0, y: 60, w: window.innerWidth, h: window.innerHeight - 60 }
+              : { x: 400, y: 88, w: 360, h: 420 }
+          }
           onClose={() => setNavOpen(false)}
           ariaTitle="Navigator window"
         >
@@ -364,7 +410,7 @@ export default function Page() {
               ))}
             </div>
             <div className="mt-auto border-t border-black/20 text-[11px] text-black/70 px-3 py-2">
-              Tip: Click tiles or hold WASD/Arrows to walk. Emotes: /dance, /sit, /party, /wave, /laugh. Click a music box to play tunes locally.
+              Tip: {isMobile ? "Tap tiles or use joystick to walk" : "Click tiles or hold WASD/Arrows to walk"}. Emotes: /dance, /sit, /party, /wave, /laugh. {!isMobile && "Click a music box to play tunes locally."}
             </div>
           </div>
         </WindowFrame>
@@ -375,7 +421,11 @@ export default function Page() {
           id="settings"
           title="Settings"
           variant="habbo"
-          initial={{ x: 780, y: 88, w: 360, h: 260 }}
+          initial={
+            isMobile
+              ? { x: 0, y: 60, w: window.innerWidth, h: window.innerHeight - 60 }
+              : { x: 780, y: 88, w: 360, h: 260 }
+          }
           onClose={() => setSettingsOpen(false)}
           ariaTitle="Settings window"
         >

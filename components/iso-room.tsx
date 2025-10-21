@@ -33,6 +33,28 @@ function computeCenteredOrigin(w: number, h: number, cols: number, rows: number,
   return { x: originX, y: originY, floorW, floorH }
 }
 
+// Camera that follows avatar position
+function computeFollowOrigin(
+  w: number,
+  h: number,
+  avatarX: number,
+  avatarY: number,
+  tileW: number,
+  tileH: number
+) {
+  const hw = tileW / 2
+  const hh = tileH / 2
+  // Calculate where avatar would be rendered with origin (0,0)
+  const avatarScreenX = (avatarX - avatarY) * hw
+  const avatarScreenY = (avatarX + avatarY) * hh
+
+  // Center camera on avatar
+  const originX = Math.round(w / 2 - avatarScreenX)
+  const originY = Math.round(h / 2 - avatarScreenY - 40) // -40 to show more room above avatar
+
+  return { x: originX, y: originY }
+}
+
 type Peer = {
   id: string
   name: string
@@ -66,6 +88,7 @@ type Props = {
   currentTrackId?: string
   isPlaying?: boolean
   onMusicBoxToggle?: (id: string) => void
+  externalDirection?: "up" | "down" | "left" | "right" | null
 }
 
 type Avatar = { x: number; y: number; facing: "N" | "S" | "E" | "W" }
@@ -88,6 +111,7 @@ export default function IsoRoom({
   currentTrackId,
   isPlaying,
   onMusicBoxToggle,
+  externalDirection = null,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -112,6 +136,9 @@ export default function IsoRoom({
 
   const smoothPeersRef = useRef<Map<string, { x: number; y: number; facing: Facing }>>(new Map())
   const authorBubblesRef = useRef<Map<string, Bubble>>(new Map())
+
+  // Smooth camera position for mobile
+  const cameraRef = useRef<{ x: number; y: number } | null>(null)
 
   const tileW = 54
   const tileH = 27
@@ -260,7 +287,11 @@ export default function IsoRoom({
       return
     }
 
-    const originInfo = computeCenteredOrigin(size.w, size.h, grid.cols, grid.rows, tileW, tileH)
+    // Use same camera logic as rendering
+    const isMobileWidth = size.w < 768
+    const originInfo = isMobileWidth
+      ? computeFollowOrigin(size.w, size.h, avatar.x, avatar.y, tileW, tileH)
+      : computeCenteredOrigin(size.w, size.h, grid.cols, grid.rows, tileW, tileH)
     const params: IsoProjectParams = { tileW, tileH, originX: originInfo.x, originY: originInfo.y }
     const { tx, ty } = unprojectIso(px, py, params)
 
@@ -291,6 +322,25 @@ export default function IsoRoom({
       setAvatar((a) => ({ ...a, facing }))
     }
   }, [avatar.x, avatar.y, grid, isSitting, onSitChange, size.w, tileH, tileW, room, onMusicBoxToggle, getMusicBoxes, currentTrackId, isPlaying, audioEnabled])
+
+  // Handle external direction from virtual joystick
+  useEffect(() => {
+    if (!externalDirection) {
+      heldDirRef.current = null
+      return
+    }
+    const dirMap: Record<string, { dx: number; dy: number; facing: Avatar["facing"] }> = {
+      up: { dx: 0, dy: -1, facing: "N" },
+      down: { dx: 0, dy: 1, facing: "S" },
+      left: { dx: -1, dy: 0, facing: "W" },
+      right: { dx: 1, dy: 0, facing: "E" },
+    }
+    const m = dirMap[externalDirection]
+    if (m) {
+      heldDirRef.current = m
+      if (!pathRef.current) tryMoveOne(m.dx, m.dy)
+    }
+  }, [externalDirection, tryMoveOne])
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -392,7 +442,23 @@ export default function IsoRoom({
       drawCloudsBack(ctx, size.w, bgTimeRef.current)
       drawBirds(ctx, size.w, size.h, bgTimeRef.current)
 
-      const originInfo = computeCenteredOrigin(size.w, size.h, grid.cols, grid.rows, tileW, tileH)
+      // Use follow camera for mobile, centered for desktop
+      const isMobileWidth = size.w < 768
+      let originInfo
+      if (isMobileWidth) {
+        const targetOrigin = computeFollowOrigin(size.w, size.h, avatar.x, avatar.y, tileW, tileH)
+        // Smooth camera transition
+        if (!cameraRef.current) {
+          cameraRef.current = { x: targetOrigin.x, y: targetOrigin.y }
+        }
+        const smoothFactor = 0.1 // Lower = smoother but slower
+        cameraRef.current.x += (targetOrigin.x - cameraRef.current.x) * smoothFactor
+        cameraRef.current.y += (targetOrigin.y - cameraRef.current.y) * smoothFactor
+        originInfo = { x: Math.round(cameraRef.current.x), y: Math.round(cameraRef.current.y) }
+      } else {
+        originInfo = computeCenteredOrigin(size.w, size.h, grid.cols, grid.rows, tileW, tileH)
+        cameraRef.current = null // Reset camera when switching to desktop
+      }
       const params: IsoProjectParams = { tileW, tileH, originX: originInfo.x, originY: originInfo.y }
 
       // tiles
@@ -818,8 +884,11 @@ function drawFurniture(
       const a = Math.floor(prog)
       const b = (a + 1) % path.length
       const tt = prog - a
-      const cx = path[a].x + (path[b].x - path[a].x) * tt
-      const cy = path[a].y + (path[b].y - path[a].y) * tt
+      const nodeA = path[a]
+      const nodeB = path[b]
+      if (!nodeA || !nodeB) return
+      const cx = nodeA.x + (nodeB.x - nodeA.x) * tt
+      const cy = nodeA.y + (nodeB.y - nodeA.y) * tt
       const { px, py } = projectIso(cx, cy, params)
       // tiny cat
       rect(ctx, px - 4, py - 18, 8, 6, "#1f2937")  // body
